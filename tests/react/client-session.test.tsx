@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineAuth } from "../../src";
+import { deserializeSnapshot, encodeSnapshotValue } from "../../src/shared/session";
 import type { SessionSnapshotJson, SessionState } from "../../src/react";
 import { createReactAuth } from "../../src/react";
 
@@ -43,6 +44,7 @@ function makeSnapshot(email: string): SessionSnapshotJson<TestUser> {
 describe("client Session", () => {
   beforeEach(async () => {
     document.body.innerHTML = "";
+    document.cookie = "za.snapshot=; Max-Age=0; path=/";
     vi.restoreAllMocks();
 
     const container = document.createElement("div");
@@ -55,6 +57,7 @@ describe("client Session", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    document.cookie = "za.snapshot=; Max-Age=0; path=/";
   });
 
   it("hydrates useSession from SessionProvider without fetching", async () => {
@@ -72,6 +75,33 @@ describe("client Session", () => {
       const root = createRoot(container);
       root.render(
         <SessionProvider initialSnapshot={makeSnapshot("mia@example.com")}>
+          <Probe />
+        </SessionProvider>
+      );
+    });
+
+    expect(container.querySelector("#value")?.textContent).toBe("mia@example.com");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("hydrates from the readable snapshot cookie when no snapshot prop is passed", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    document.cookie = `za.snapshot=${encodeURIComponent(
+      encodeSnapshotValue(deserializeSnapshot(makeSnapshot("mia@example.com")))
+    )}`;
+
+    function Probe() {
+      const session = useSession();
+      return <div id="value">{session.user?.email ?? "anonymous"}</div>;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    await act(async () => {
+      const root = createRoot(container);
+      root.render(
+        <SessionProvider>
           <Probe />
         </SessionProvider>
       );

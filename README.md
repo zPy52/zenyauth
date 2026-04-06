@@ -109,7 +109,8 @@ When the provider redirects back:
 After sign-in:
 
 1. The server reads the session cookie and verifies the JWT.
-2. The Next.js app hydrates the client from a server header.
+2. The auth layer updates a readable snapshot cookie with the decoded session payload.
+3. The Next.js app hydrates the client from that snapshot cookie.
 3. React components read the current session from an external store.
 4. Cross-tab updates are synced with `BroadcastChannel` when available.
 
@@ -555,13 +556,16 @@ Example:
 ```tsx
 // app/layout.tsx
 import type { ReactNode } from "react";
-import { SessionProvider } from "zenyauth/next";
+import { createNextAuth } from "zenyauth/next";
+import { auth } from "@/src/auth";
+
+const zenyauth = createNextAuth(auth);
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <zenyauth.SessionProvider>{children}</zenyauth.SessionProvider>
       </body>
     </html>
   );
@@ -570,9 +574,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
 ### Why This Exists
 
-`SessionProvider` reads a special request header when `initialSnapshot` is omitted, then passes that snapshot into the client session store.
+The proxy and auth handlers keep two cookies in sync:
 
-That avoids a second session fetch on first render.
+1. An HTTP-only signed JWT cookie
+2. A readable snapshot cookie with the decoded session payload
+
+`SessionProvider` reads that snapshot cookie once on initial load and hydrates the client store from it. That avoids a second fetch on first render while still keeping the JWT itself hidden from client JavaScript.
 
 If you are not using Next.js, or you want to hydrate manually, use the React `SessionProvider` directly and pass `initialSnapshot` yourself.
 
@@ -684,7 +691,7 @@ export default withAuth(auth, async (req) => {
 });
 ```
 
-The request is also decorated with a serialized session header for downstream code.
+The request is also decorated with a serialized session header for downstream middleware and server code.
 
 ## Step 7: Trigger Sign In And Sign Out
 
@@ -857,12 +864,13 @@ That type will flow into:
 
 ### Session Cookie
 
-The session is stored in an HTTP-only cookie with a configurable prefix.
+The session is stored in two cookies with a configurable prefix.
 
 The default cookie names are:
 
 1. `za.session`
-2. `za.flow.<providerId>`
+2. `za.snapshot`
+3. `za.flow.<providerId>`
 
 The session cookie contains a signed JWT with:
 
@@ -980,7 +988,7 @@ export default async function DashboardPage() {
 2. `basePath` should match the route where you mounted the handler.
 3. OAuth provider callback URLs must match what you configured at the identity provider.
 4. The package expects a browser for client store hydration and cross-tab sync.
-5. The session cookie is HTTP-only, so the browser cannot read it directly from JavaScript.
+5. The signed session JWT cookie is HTTP-only, and the readable snapshot cookie is only used for client hydration.
 
 ## Summary
 

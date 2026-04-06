@@ -6,6 +6,8 @@ import {
   clearAuthCookies,
   createSessionArtifacts,
   deserializeSnapshot,
+  encodeSnapshotValue,
+  decodeSnapshotValue,
   serializeSnapshot,
   verifySessionToken
 } from "../../src/shared/session";
@@ -49,24 +51,41 @@ describe("session helpers", () => {
     expect(snapshot.user).toBeUndefined();
   });
 
-  it("creates a single HttpOnly auth cookie", async () => {
+  it("creates both the HttpOnly session cookie and the readable snapshot cookie", async () => {
     const { sessionToken } = await createSessionArtifacts<TestUser>(
       { email: "sara@example.com" },
       "email",
       options,
       "sara@example.com"
     );
+    const snapshot = await verifySessionToken<TestUser>(sessionToken, options.secret);
 
-    const cookies = buildAuthCookies(sessionToken, options);
-    expect(cookies).toHaveLength(1);
+    const cookies = buildAuthCookies(sessionToken, snapshot, options);
+    expect(cookies).toHaveLength(2);
     expect(cookies[0]).toContain("HttpOnly");
     expect(cookies[0]).toContain("za.session=");
+    expect(cookies[1]).toContain("za.snapshot=");
+    expect(cookies[1]).not.toContain("HttpOnly");
   });
 
-  it("creates a single clear-cookie header", () => {
+  it("creates clear-cookie headers for both auth cookies", () => {
     const cleared = clearAuthCookies(options);
-    expect(cleared).toHaveLength(1);
+    expect(cleared).toHaveLength(2);
     expect(cleared[0]).toContain("Max-Age=0");
     expect(cleared[0]).toContain("za.session=");
+    expect(cleared[1]).toContain("Max-Age=0");
+    expect(cleared[1]).toContain("za.snapshot=");
+  });
+
+  it("round-trips snapshot values for the readable cookie", async () => {
+    const { sessionToken } = await createSessionArtifacts<TestUser>(
+      { email: "lucy@example.com", name: "Lucy" },
+      "email",
+      options,
+      "lucy@example.com"
+    );
+    const snapshot = await verifySessionToken<TestUser>(sessionToken, options.secret);
+
+    expect(decodeSnapshotValue<TestUser>(encodeSnapshotValue(snapshot))).toEqual(snapshot);
   });
 });

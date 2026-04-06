@@ -184,18 +184,22 @@ function configureApi(api?: string): void {
   }
 }
 
-function readSessionResult(result: Record<string, unknown>): SessionSnapshotJson<unknown> | undefined {
-  if (typeof result.session !== "object" || result.session === null) {
+function toSnapshotJson(value: unknown): SessionSnapshotJson<unknown> | undefined {
+  if (typeof value !== "object" || value === null) {
     return undefined;
   }
 
-  const snapshot = result.session as Partial<SessionSnapshotJson<unknown>>;
+  const snapshot = value as Partial<SessionSnapshotJson<unknown>>;
   return {
     user: snapshot.user,
     expiryDate: typeof snapshot.expiryDate === "string" ? snapshot.expiryDate : undefined,
     isExpired: snapshot.isExpired === true,
     isValid: snapshot.isValid === true
   };
+}
+
+function readSessionResult(result: Record<string, unknown>): SessionSnapshotJson<unknown> | undefined {
+  return toSnapshotJson(result.session);
 }
 
 export function getSnapshot<TUser = unknown>(): SessionSnapshot<TUser> {

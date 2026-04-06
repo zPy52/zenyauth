@@ -4,6 +4,7 @@ import type {
   SessionSnapshot,
   ZenyAuthOptions
 } from "../shared/types";
+import { normalizeOptions } from "../shared/providers";
 import { getServerSession as getServerSessionBase, NextZenyAuth } from "./handler";
 import type { AuthenticatedNextRequest, ZenyAuthProxyOptions } from "./proxy";
 import { withAuth as withAuthBase } from "./proxy";
@@ -36,6 +37,7 @@ export function createNextAuth<TAuth extends AuthConfig<any>>(auth: TAuth): Next
   type TUser = InferAuthUser<TAuth>;
 
   const options = auth as ZenyAuthOptions<TUser>;
+  const normalized = normalizeOptions(options);
   const handlers = NextZenyAuth<TUser>(options);
 
   return {
@@ -43,7 +45,10 @@ export function createNextAuth<TAuth extends AuthConfig<any>>(auth: TAuth): Next
     GET: handlers.GET,
     POST: handlers.POST,
     SessionProvider(props) {
-      return SessionProviderBase<TUser>(props);
+      return SessionProviderBase<TUser>({
+        ...props,
+        cookiePrefix: props.cookiePrefix ?? normalized.session.cookiePrefix
+      });
     },
     getServerSession(req) {
       return getServerSessionBase<TUser>(req, options);

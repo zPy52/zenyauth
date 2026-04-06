@@ -135,8 +135,10 @@ describe("NextZenyAuth", () => {
 
     expect(response.status).toBe(200);
     const cookies = getSetCookies(response);
-    expect(cookies).toHaveLength(1);
+    expect(cookies).toHaveLength(2);
     expect(cookies[0]).toContain("HttpOnly");
+    expect(cookies[1]).toContain("za.snapshot=");
+    expect(cookies[1]).not.toContain("HttpOnly");
 
     const session = await getServerSession(
       new Request("https://app.example.com/protected", {
@@ -187,6 +189,7 @@ describe("NextZenyAuth", () => {
       }
     });
     expect(getSetCookies(response).some((cookie) => cookie.startsWith("za.session="))).toBe(true);
+    expect(getSetCookies(response).some((cookie) => cookie.startsWith("za.snapshot="))).toBe(true);
   });
 
   it("fails sign-in when callbacks.signIn throws for email sign-in", async () => {
@@ -287,6 +290,7 @@ describe("NextZenyAuth", () => {
     expect(callbackResponse.status).toBe(302);
     expect(callbackResponse.headers.get("location")).toBe("/private");
     expect(getSetCookies(callbackResponse).some((cookie) => cookie.startsWith("za.session="))).toBe(true);
+    expect(getSetCookies(callbackResponse).some((cookie) => cookie.startsWith("za.snapshot="))).toBe(true);
   });
 
   it("runs callbacks.signIn for oauth callback before redirecting", async () => {
@@ -445,6 +449,7 @@ describe("NextZenyAuth", () => {
     const cookies = getSetCookies(callbackResponse);
     expect(cookies.some((cookie) => cookie.startsWith("za.flow.testoauth=") && cookie.includes("Max-Age=0"))).toBe(true);
     expect(cookies.some((cookie) => cookie.startsWith("za.session=") && cookie.includes("Max-Age=0"))).toBe(true);
+    expect(cookies.some((cookie) => cookie.startsWith("za.snapshot=") && cookie.includes("Max-Age=0"))).toBe(true);
   });
 
   it("still applies callbacks.sessionPayload after callbacks.signIn succeeds", async () => {

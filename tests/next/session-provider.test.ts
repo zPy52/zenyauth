@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SESSION_HEADER_NAME, encodeSnapshotHeader } from "../../src/shared/session";
+import { encodeSnapshotValue, getCookieNames } from "../../src/shared/session";
 
-const headersMock = vi.fn();
+const cookiesMock = vi.fn();
 
 vi.mock("next/headers", () => ({
-  headers: headersMock
+  cookies: cookiesMock
 }));
 
 type TestUser = {
@@ -27,28 +27,30 @@ function makeSnapshot(email: string) {
 
 describe("next SessionProvider", () => {
   beforeEach(() => {
-    headersMock.mockReset();
+    cookiesMock.mockReset();
   });
 
-  it("hydrates from the request header when no snapshot is passed", async () => {
+  it("hydrates from the snapshot cookie when no snapshot is passed", async () => {
     const snapshot = makeSnapshot("mia@example.com");
+    const cookieNames = getCookieNames("za");
 
-    headersMock.mockResolvedValue({
+    cookiesMock.mockResolvedValue({
       get(name: string) {
-        return name === SESSION_HEADER_NAME ? encodeSnapshotHeader<TestUser>(snapshot) : null;
+        return name === cookieNames.snapshot ? { value: encodeSnapshotValue<TestUser>(snapshot) } : undefined;
       }
     });
 
     const nextEntry = await import("../../src/next");
     const element = await nextEntry.SessionProvider<TestUser>({ children: null });
 
-    expect(headersMock).toHaveBeenCalledTimes(1);
+    expect(cookiesMock).toHaveBeenCalledTimes(1);
     expect(element.props.initialSnapshot).toEqual(snapshot);
+    expect(element.props.cookiePrefix).toBeUndefined();
   });
 
   it("treats null as an explicit manual snapshot", async () => {
-    headersMock.mockImplementation(() => {
-      throw new Error("headers() should not be called for explicit snapshots");
+    cookiesMock.mockImplementation(() => {
+      throw new Error("cookies() should not be called for explicit snapshots");
     });
 
     const nextEntry = await import("../../src/next");
@@ -57,17 +59,18 @@ describe("next SessionProvider", () => {
       initialSnapshot: null
     });
 
-    expect(headersMock).not.toHaveBeenCalled();
+    expect(cookiesMock).not.toHaveBeenCalled();
     expect(element.props.initialSnapshot).toBeNull();
   });
 
-  it("prefers an explicit snapshot over the request header", async () => {
-    const headerSnapshot = makeSnapshot("header@example.com");
+  it("prefers an explicit snapshot over the snapshot cookie", async () => {
+    const cookieSnapshot = makeSnapshot("cookie@example.com");
     const explicitSnapshot = makeSnapshot("explicit@example.com");
+    const cookieNames = getCookieNames("za");
 
-    headersMock.mockResolvedValue({
+    cookiesMock.mockResolvedValue({
       get(name: string) {
-        return name === SESSION_HEADER_NAME ? encodeSnapshotHeader<TestUser>(headerSnapshot) : null;
+        return name === cookieNames.snapshot ? { value: encodeSnapshotValue<TestUser>(cookieSnapshot) } : undefined;
       }
     });
 
@@ -77,8 +80,29 @@ describe("next SessionProvider", () => {
       initialSnapshot: explicitSnapshot
     });
 
-    expect(headersMock).not.toHaveBeenCalled();
+    expect(cookiesMock).not.toHaveBeenCalled();
     expect(element.props.initialSnapshot).toBe(explicitSnapshot);
+  });
+
+  it("supports custom cookie prefixes", async () => {
+    const snapshot = makeSnapshot("custom@example.com");
+    const cookieNames = getCookieNames("custom");
+
+    cookiesMock.mockResolvedValue({
+      get(name: string) {
+        return name === cookieNames.snapshot ? { value: encodeSnapshotValue<TestUser>(snapshot) } : undefined;
+      }
+    });
+
+    const nextEntry = await import("../../src/next");
+    const element = await nextEntry.SessionProvider<TestUser>({
+      children: null,
+      cookiePrefix: "custom"
+    });
+
+    expect(cookiesMock).toHaveBeenCalledTimes(1);
+    expect(element.props.initialSnapshot).toEqual(snapshot);
+    expect(element.props.cookiePrefix).toBe("custom");
   });
 
   it("does not export SessionHydrator anymore", async () => {

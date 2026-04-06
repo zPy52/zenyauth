@@ -13,10 +13,12 @@ export const SESSION_HEADER_NAME = "x-zenyauth-session";
 
 export function getCookieNames(prefix: string): {
   session: string;
+  snapshot: string;
   flow: (providerId: string) => string;
 } {
   return {
     session: `${prefix}.session`,
+    snapshot: `${prefix}.snapshot`,
     flow: (providerId: string) => `${prefix}.flow.${providerId}`
   };
 }
@@ -58,11 +60,11 @@ export function deserializeSnapshot<TUser>(snapshot?: SessionSnapshotJson<TUser>
   };
 }
 
-export function encodeSnapshotHeader<TUser>(snapshot: SessionSnapshot<TUser>): string {
+export function encodeSnapshotValue<TUser>(snapshot: SessionSnapshot<TUser>): string {
   return Buffer.from(JSON.stringify(serializeSnapshot(snapshot)), "utf8").toString("base64url");
 }
 
-export function decodeSnapshotHeader<TUser>(value: string | null | undefined): SessionSnapshot<TUser> {
+export function decodeSnapshotValue<TUser>(value: string | null | undefined): SessionSnapshot<TUser> {
   if (!value) {
     return createInvalidSnapshot<TUser>();
   }
@@ -73,6 +75,39 @@ export function decodeSnapshotHeader<TUser>(value: string | null | undefined): S
   } catch {
     return createInvalidSnapshot<TUser>();
   }
+}
+
+export function encodeSnapshotHeader<TUser>(snapshot: SessionSnapshot<TUser>): string {
+  return encodeSnapshotValue(snapshot);
+}
+
+export function decodeSnapshotHeader<TUser>(value: string | null | undefined): SessionSnapshot<TUser> {
+  return decodeSnapshotValue(value);
+}
+
+function resolveSnapshotCookieMaxAge<TUser>(
+  snapshot: SessionSnapshot<TUser>,
+  options: NormalizedZenyAuthOptions<TUser>
+): number {
+  if (!snapshot.expiryDate) {
+    return options.session.maxAge;
+  }
+
+  return Math.max(0, Math.ceil((snapshot.expiryDate.getTime() - Date.now()) / 1000));
+}
+
+export function buildSnapshotCookie<TUser>(
+  snapshot: SessionSnapshot<TUser>,
+  options: NormalizedZenyAuthOptions<TUser>
+): string {
+  const names = getCookieNames(options.session.cookiePrefix);
+
+  return serializeCookie(names.snapshot, encodeSnapshotValue(snapshot), {
+    maxAge: resolveSnapshotCookieMaxAge(snapshot, options),
+    path: "/",
+    sameSite: options.session.sameSite,
+    secure: options.session.secure
+  });
 }
 
 export async function createSessionArtifacts<TUser>(
@@ -115,7 +150,11 @@ export async function verifySessionToken<TUser>(sessionToken: string | undefined
   return snapshotFromPayload(sessionPayload);
 }
 
-export function buildAuthCookies<TUser>(sessionToken: string, options: NormalizedZenyAuthOptions<TUser>): string[] {
+export function buildAuthCookies<TUser>(
+  sessionToken: string,
+  snapshot: SessionSnapshot<TUser>,
+  options: NormalizedZenyAuthOptions<TUser>
+): string[] {
   const names = getCookieNames(options.session.cookiePrefix);
   return [
     serializeCookie(names.session, sessionToken, {
@@ -124,8 +163,19 @@ export function buildAuthCookies<TUser>(sessionToken: string, options: Normalize
       path: "/",
       sameSite: options.session.sameSite,
       secure: options.session.secure
-    })
+    }),
+    buildSnapshotCookie(snapshot, options)
   ];
+}
+
+export function clearSnapshotCookie<TUser>(options: NormalizedZenyAuthOptions<TUser>): string {
+  const names = getCookieNames(options.session.cookiePrefix);
+
+  return expireCookie(names.snapshot, {
+    path: "/",
+    sameSite: options.session.sameSite,
+    secure: options.session.secure
+  });
 }
 
 export function clearAuthCookies<TUser>(options: NormalizedZenyAuthOptions<TUser>): string[] {
@@ -136,7 +186,8 @@ export function clearAuthCookies<TUser>(options: NormalizedZenyAuthOptions<TUser
       path: "/",
       sameSite: options.session.sameSite,
       secure: options.session.secure
-    })
+    }),
+    clearSnapshotCookie(options)
   ];
 }
 

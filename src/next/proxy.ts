@@ -5,7 +5,9 @@ import type { DefaultUser, SessionSnapshot, ZenyAuthOptions } from "../shared/ty
 import { normalizeOptions } from "../shared/providers";
 import {
   SESSION_HEADER_NAME,
+  buildSnapshotCookie,
   clearAuthCookies,
+  clearSnapshotCookie,
   encodeSnapshotHeader,
   getCookieNames,
   verifySessionToken
@@ -56,23 +58,23 @@ function createPassThroughResponse(headers: Headers): NextResponse {
 function createUnauthorizedResponse<TUser>(
   req: NextRequest,
   options: ZenyAuthProxyOptions<TUser>,
-  cookiesToClear: string[]
+  responseCookies: string[]
 ): Response {
   if (wantsHtml(req) && options.pages?.signIn) {
     const url = new URL(options.pages.signIn, req.url);
     url.searchParams.set("callbackUrl", `${req.nextUrl.pathname}${req.nextUrl.search}`);
     const response = NextResponse.redirect(url);
-    applySetCookies(response.headers, cookiesToClear);
+    applySetCookies(response.headers, responseCookies);
     return response;
   }
 
   const response = new Response("Unauthorized", { status: 401 });
-  applySetCookies(response.headers, cookiesToClear);
+  applySetCookies(response.headers, responseCookies);
   return response;
 }
 
-function attachCookies(response: Response, cookiesToClear: string[]): Response {
-  applySetCookies(response.headers, cookiesToClear);
+function attachCookies(response: Response, responseCookies: string[]): Response {
+  applySetCookies(response.headers, responseCookies);
   return response;
 }
 
@@ -86,8 +88,15 @@ export function withAuth<TUser = DefaultUser>(
 
   return async (req: NextRequest) => {
     const sessionToken = req.cookies.get(cookieNames.session)?.value;
+    const snapshotCookie = req.cookies.get(cookieNames.snapshot)?.value;
     const session = await verifySessionToken<TUser>(sessionToken, normalized.secret);
-    const cookiesToClear = !session.isValid && sessionToken ? clearAuthCookies(normalized) : [];
+    const responseCookies = session.isValid
+      ? [buildSnapshotCookie(session, normalized)]
+      : sessionToken
+        ? clearAuthCookies(normalized)
+        : snapshotCookie
+          ? [clearSnapshotCookie(normalized)]
+          : [];
     const requestHeaders = withSnapshotHeader(req, session);
 
     const decision = options.callbacks?.authorized
@@ -95,11 +104,11 @@ export function withAuth<TUser = DefaultUser>(
       : true;
 
     if (decision instanceof Response) {
-      return attachCookies(decision, cookiesToClear);
+      return attachCookies(decision, responseCookies);
     }
 
     if (decision === false) {
-      return createUnauthorizedResponse(req, options, cookiesToClear);
+      return createUnauthorizedResponse(req, options, responseCookies);
     }
 
     const authReq = req as AuthenticatedNextRequest<TUser>;
@@ -112,17 +121,17 @@ export function withAuth<TUser = DefaultUser>(
 
     if (!handler) {
       const response = createPassThroughResponse(requestHeaders);
-      applySetCookies(response.headers, cookiesToClear);
+      applySetCookies(response.headers, responseCookies);
       return response;
     }
 
     const response = await handler(authReq);
     if (response) {
-      return attachCookies(response, cookiesToClear);
+      return attachCookies(response, responseCookies);
     }
 
     const nextResponse = createPassThroughResponse(requestHeaders);
-    applySetCookies(nextResponse.headers, cookiesToClear);
+    applySetCookies(nextResponse.headers, responseCookies);
     return nextResponse;
   };
 }

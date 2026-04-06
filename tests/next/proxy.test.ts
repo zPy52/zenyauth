@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { normalizeOptions } from "../../src/shared/providers";
 import {
   SESSION_HEADER_NAME,
+  encodeSnapshotValue,
   createSessionArtifacts,
   decodeSnapshotHeader
 } from "../../src/shared/session";
@@ -110,6 +111,11 @@ describe("withAuth", () => {
     const injected = decodeSnapshotHeader<{ email: string }>(response.headers.get(SESSION_HEADER_NAME));
     expect(injected.isValid).toBe(true);
     expect(injected.user?.email).toBe("ada@example.com");
+
+    const cookies = getSetCookies(response);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toContain("za.snapshot=");
+    expect(cookies[0]).toContain(encodeURIComponent(encodeSnapshotValue(injected)));
   });
 
   it("clears invalid cookies and injects an invalid snapshot", async () => {
@@ -129,9 +135,11 @@ describe("withAuth", () => {
     expect(injected.isValid).toBe(false);
 
     const cookies = getSetCookies(response);
-    expect(cookies).toHaveLength(1);
+    expect(cookies).toHaveLength(2);
     expect(cookies[0]).toContain("za.session=");
     expect(cookies[0]).toContain("Max-Age=0");
+    expect(cookies[1]).toContain("za.snapshot=");
+    expect(cookies[1]).toContain("Max-Age=0");
   });
 
   it("redirects HTML requests to the sign-in page when authorization fails", async () => {
@@ -162,6 +170,9 @@ describe("withAuth", () => {
     expect(response.headers.get("location")).toBe(
       "https://app.example.com/signin?callbackUrl=%2Fdashboard%3Ftab%3Dprivate"
     );
+
+    const cookies = getSetCookies(response);
+    expect(cookies).toHaveLength(0);
   });
 
   it("supports custom authorization responses", async () => {
@@ -182,5 +193,24 @@ describe("withAuth", () => {
     const response = await proxy(makeRequest("https://app.example.com/dashboard"));
     expect(response.status).toBe(418);
     await expect(response.text()).resolves.toBe("blocked");
+  });
+
+  it("clears a stale snapshot cookie even when the JWT cookie is missing", async () => {
+    const { withAuth } = await import("../../src/next/proxy");
+    const proxy = withAuth({
+      secret: "proxy-secret",
+      providers: []
+    });
+
+    const response = await proxy(
+      makeRequest("https://app.example.com/dashboard", {
+        cookie: "za.snapshot=stale"
+      })
+    );
+
+    const cookies = getSetCookies(response);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toContain("za.snapshot=");
+    expect(cookies[0]).toContain("Max-Age=0");
   });
 });

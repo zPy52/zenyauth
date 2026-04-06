@@ -145,9 +145,15 @@ async function buildSuccessSessionResponse<TUser>(
     options,
     subject
   );
+  const snapshot = {
+    user: sessionPayload.user,
+    expiryDate: new Date(sessionPayload.exp * 1000),
+    isExpired: false,
+    isValid: true
+  };
 
   const headers = new Headers();
-  applySetCookies(headers, buildAuthCookies(sessionToken, options));
+  applySetCookies(headers, buildAuthCookies(sessionToken, snapshot, options));
   applySetCookies(headers, init?.extraCookies ?? []);
 
   if (init?.redirectTo) {
@@ -157,16 +163,11 @@ async function buildSuccessSessionResponse<TUser>(
   return jsonResponse(
     {
       ok: true,
-      redirected: false,
-      session: serializeSnapshot({
-        user: sessionPayload.user,
-        expiryDate: new Date(sessionPayload.exp * 1000),
-        isExpired: false,
-        isValid: true
-      })
-    },
-    { headers }
-  );
+        redirected: false,
+        session: serializeSnapshot(snapshot)
+      },
+      { headers }
+    );
 }
 
 async function handleOAuthSignIn<TUser>(
@@ -291,7 +292,7 @@ async function handleSession<TUser>(
   const cookies = parseCookieHeader(req.headers.get("cookie"));
   const snapshot = await verifySessionToken<TUser>(cookies[names.session], options.secret);
   const headers = new Headers();
-  if (!snapshot.isValid && cookies[names.session]) {
+  if (!snapshot.isValid && (cookies[names.session] || cookies[names.snapshot])) {
     applySetCookies(headers, clearAuthCookies(options));
   }
 

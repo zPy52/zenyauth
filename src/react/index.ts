@@ -1,7 +1,7 @@
 "use client";
 
 import type { Context, ReactNode } from "react";
-import { createContext, createElement, useContext, useSyncExternalStore } from "react";
+import { createContext, createElement, useContext, useRef, useSyncExternalStore } from "react";
 
 import type {
   AuthConfig,
@@ -12,8 +12,9 @@ import type {
   SessionSnapshot,
   SessionSnapshotJson
 } from "../shared/types";
-import { deserializeSnapshot } from "../shared/session";
-import { createInvalidSnapshot } from "../shared/utils";
+import { decodeSnapshotValue, deserializeSnapshot, getCookieNames } from "../shared/session";
+import { parseCookieHeader } from "../shared/cookies";
+import { DEFAULT_COOKIE_PREFIX, createInvalidSnapshot } from "../shared/utils";
 import { ClientSession, configureStore, hydrateSnapshot } from "./store";
 
 export type User = DefaultUser;
@@ -22,6 +23,7 @@ type SessionProviderProps<TUser> = {
   children: ReactNode;
   initialSnapshot?: SessionSnapshot<TUser> | SessionSnapshotJson<TUser> | null;
   api?: string;
+  cookiePrefix?: string;
 };
 
 type UseSessionOptions = {
@@ -44,16 +46,31 @@ function toSnapshot<TUser>(snapshot?: SessionSnapshot<TUser> | SessionSnapshotJs
   return deserializeSnapshot(snapshot as SessionSnapshotJson<TUser>);
 }
 
+function readSnapshotCookie<TUser>(cookiePrefix?: string): SessionSnapshot<TUser> {
+  if (typeof document === "undefined") {
+    return createInvalidSnapshot<TUser>();
+  }
+
+  const cookies = parseCookieHeader(document.cookie);
+  return decodeSnapshotValue<TUser>(cookies[getCookieNames(cookiePrefix ?? DEFAULT_COOKIE_PREFIX).snapshot]);
+}
+
 function SessionProviderBase<TUser>({
   children,
   initialSnapshot,
   api,
+  cookiePrefix,
   context
 }: SessionProviderProps<TUser> & {
   context: Context<SessionContextValue>;
 }) {
   configureStore(api);
-  const snapshot = toSnapshot(initialSnapshot) as SessionSnapshot<unknown>;
+  const cookieSnapshotRef = useRef<SessionSnapshot<unknown> | undefined>(undefined);
+  const snapshot =
+    initialSnapshot !== undefined
+      ? (toSnapshot(initialSnapshot) as SessionSnapshot<unknown>)
+      : (cookieSnapshotRef.current ??= readSnapshotCookie<unknown>(cookiePrefix));
+
   hydrateSnapshot(snapshot);
   return createElement(context.Provider, { value: snapshot }, children);
 }
