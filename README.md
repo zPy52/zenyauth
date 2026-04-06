@@ -2,6 +2,8 @@
 
 ZenyAuth is a small auth layer for Next.js that keeps the core session state in signed cookies and exposes the same session snapshot on the server, in React, and in route handlers.
 
+It is intentionally not a database. If your app needs to create user records, keep an `imageUrl`, store roles, or sync profile changes, use your own datastore, such as Redis, and wire it in through the auth callbacks.
+
 The main idea is:
 
 1. Define a single auth config with providers and session options.
@@ -27,6 +29,12 @@ At the root, you define auth configuration:
 
 ```ts
 import { createAuth, defineAuth } from "zenyauth";
+```
+
+The root package also exports the limiter primitives:
+
+```ts
+import { RateLimiter, UsageLimiter } from "zenyauth";
 ```
 
 From `zenyauth/react`, you get client-side session access:
@@ -67,6 +75,12 @@ The package supports two provider types:
 
 OAuth providers implement the redirect, callback, token exchange, and profile fetch flow.
 Email providers accept credentials directly and return a user payload.
+
+If you want to persist app-specific data, the usual pattern is:
+
+1. Use `callbacks.signIn` to create or update the user record in Redis or another store.
+2. Use `callbacks.sessionPayload` to read that stored record and shape the session user.
+3. Keep the cookie session small and treat Redis as the source of truth for app data.
 
 ## How The Flow Works
 
@@ -156,6 +170,297 @@ The important options are:
 6. `pages.signIn` and `pages.error`: optional redirect pages.
 7. `callbacks.signIn`: called after a provider sign-in succeeds.
 8. `callbacks.sessionPayload`: maps a provider payload to your app user type.
+
+## Persist App Data In Redis
+
+If you want the whole app to share one user record, a Redis-backed repository is a good fit for a small to medium Next.js app. ZenyAuth can authenticate the user, then your callbacks can upsert the payload into Redis and read it back when building the session snapshot.
+
+This is a good place to store:
+
+1. `id`
+2. `email`
+3. `name`
+4. `imageUrl`
+5. `role`
+6. `lastLoginAt`
+7. App-specific flags and counters
+
+### Example Redis Layer
+
+```ts
+// src/lib/user-store.ts
+import { createClient } from "redis";
+
+type UserRecord = {
+  id: string;
+  email: string;
+  name?: string;
+  imageUrl?: string;
+  role?: "admin" | "member";
+  lastLoginAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const redis = createClient({
+  url: process.env.REDIS_URL
+});
+
+const ready = redis.connect();
+
+async function ensureRedis(): Promise<void> {
+  await ready;
+}
+
+export async function getUserRecord(userId: string): Promise<UserRecord | null> {
+  await ensureRedis();
+  const raw = await redis.get(`user:${userId}`);
+  return raw ? (JSON.parse(raw) as UserRecord) : null;
+}
+
+export async function upsertUserRecord(input: {
+  id: string;
+  email: string;
+  name?: string;
+  imageUrl?: string;
+  role?: "admin" | "member";
+  lastLoginAt?: string;
+}): Promise<UserRecord> {
+  await ensureRedis();
+
+  const existing = await getUserRecord(input.id);
+  const record: UserRecord = {
+    id: input.id,
+    email: input.email,
+    name: input.name ?? existing?.name,
+    imageUrl: input.imageUrl ?? existing?.imageUrl,
+    role: input.role ?? existing?.role ?? "member",
+    lastLoginAt: input.lastLoginAt ?? existing?.lastLoginAt,
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  await redis.set(`user:${input.id}`, JSON.stringify(record));
+  return record;
+}
+```
+
+### Wire It Into ZenyAuth
+
+```ts
+// src/auth.ts
+import { createAuth } from "zenyauth";
+import GoogleProvider from "zenyauth/providers/google";
+
+import { getUserRecord, upsertUserRecord } from "@/lib/user-store";
+
+type AppUser = {
+  id: string;
+  email: string;
+  name?: string;
+  imageUrl?: string;
+  role: "admin" | "member";
+  lastLoginAt?: string;
+};
+
+export const auth = createAuth<AppUser>({
+  secret: process.env.AUTH_SECRET!,
+  providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!
+    })
+  ],
+  callbacks: {
+    signIn: async ({ user }) => {
+      const userId = user.id ?? user.email;
+
+      await upsertUserRecord({
+        id: userId,
+        email: user.email,
+        name: user.name,
+        imageUrl: user.image,
+        lastLoginAt: new Date().toISOString()
+      });
+    },
+    sessionPayload: async (user) => {
+      const userId = user.id ?? user.email;
+      const stored = await getUserRecord(userId);
+
+      return {
+        id: userId,
+        email: user.email,
+        name: stored?.name ?? user.name,
+        imageUrl: stored?.imageUrl ?? user.image,
+        role: stored?.role ?? "member",
+        lastLoginAt: stored?.lastLoginAt
+      };
+    }
+  }
+});
+```
+
+With this setup:
+
+1. The provider returns the raw profile.
+2. `signIn` creates or updates the Redis record.
+3. `sessionPayload` reads the Redis record and turns it into the app user.
+4. `Session.user(auth)` and `useSession()` both see the same shape.
+
+### Updating `imageUrl` Later
+
+When a user changes their avatar, update Redis first and let the next session read pick it up:
+
+```ts
+await upsertUserRecord({
+  id: userId,
+  email: user.email,
+  imageUrl: "https://cdn.example.com/new-avatar.png"
+});
+```
+
+This keeps the session cookie lean while the app-specific profile data lives in Redis.
+
+## Rate Limiting And Usage Credits
+
+ZenyAuth now also ships two framework-agnostic limiter primitives:
+
+1. `RateLimiter`
+2. `UsageLimiter`
+
+The design is intentionally adapter-driven. ZenyAuth defines the request and response schema, but your application decides how to read and write limiter state in your own database, cache, or queue.
+
+That means you can plug in whatever storage you already use:
+
+1. DynamoDB
+2. Prisma
+3. MongoDB
+4. Upstash Redis
+5. SQL
+6. Custom in-memory logic for tests
+
+The library does not store credits or counters for you. It only normalizes the input and output shape and handles timeout or fallback behavior.
+
+### `RateLimiter`
+
+Use `RateLimiter` when you want to enforce a request budget over a time window.
+
+```ts
+import { RateLimiter } from "zenyauth";
+
+const limiter = new RateLimiter({
+  namespace: "auth:signin",
+  limit: 5,
+  duration: "1m",
+  adapter: {
+    async limit(input) {
+      // You own the storage and the algorithm here.
+      // Read and write whatever collection/table/cache you want.
+      return {
+        success: true,
+        limit: input.limit,
+        remaining: 4,
+        reset: input.now + input.durationMs,
+        reason: "allowed"
+      };
+    }
+  }
+});
+
+const result = await limiter.limit({
+  identifier: "user_123",
+  cost: 1
+});
+```
+
+The adapter receives a normalized input object with:
+
+1. `namespace`
+2. `identifier`
+3. `key`
+4. `limit`
+5. `durationMs`
+6. `cost`
+7. `now`
+8. `meta`
+
+The result shape is also normalized:
+
+1. `success`
+2. `limit`
+3. `remaining`
+4. `reset`
+5. `reason`
+
+### `UsageLimiter`
+
+Use `UsageLimiter` when you want to track consumable credits, not just requests.
+
+```ts
+import { UsageLimiter } from "zenyauth";
+
+const usage = new UsageLimiter({
+  namespace: "ai:generation",
+  limit: 10_000,
+  refill: {
+    amount: 10_000,
+    interval: "30d"
+  },
+  adapter: {
+    async consume(input) {
+      // The library gives you the shape.
+      // You decide how credits are persisted, decremented, and refilled.
+      return {
+        success: true,
+        limit: input.limit,
+        remaining: 9_750,
+        used: 250,
+        reset: input.now + input.refill!.intervalMs,
+        reason: "allowed"
+      };
+    }
+  }
+});
+
+const result = await usage.consume({
+  identifier: "org_123",
+  bucket: "starter",
+  cost: 250
+});
+```
+
+The adapter receives:
+
+1. `namespace`
+2. `identifier`
+3. `bucket`
+4. `key`
+5. `limit`
+6. `cost`
+7. `now`
+8. `refill`
+9. `meta`
+
+The result shape includes:
+
+1. `success`
+2. `limit`
+3. `remaining`
+4. `used`
+5. `reset`
+6. `reason`
+
+### Error And Timeout Behavior
+
+Both limiters support the same control flow around adapter failures:
+
+1. Set `failureMode: "closed"` to deny when your adapter fails.
+2. Set `failureMode: "open"` to allow when your adapter fails.
+3. Set `timeout` to guard slow adapters.
+4. Provide `timeout.fallback` if you want a custom fallback result.
+5. Provide `onError` if you want to transform thrown adapter errors into a result.
+
+That keeps the library strict about schema while leaving the database strategy entirely in your hands.
 
 ## Step 2: Wire Next.js Route Handlers
 
@@ -631,6 +936,7 @@ Use ZenyAuth when you want:
 2. Cookie-backed sessions with no client session fetch on first render
 3. OAuth and email provider support
 4. Next.js helpers for route handlers, middleware, server components, and React hooks
+5. A clean place to sync auth payloads into Redis or another datastore
 
 The recommended usage path is:
 
@@ -639,3 +945,4 @@ The recommended usage path is:
 3. Wrap the app in `SessionProvider`
 4. Read session with `useSession()` in client components
 5. Read session with `Session.read(auth)` or `Session.user(auth)` on the server
+6. Use `callbacks.signIn` and `callbacks.sessionPayload` to persist and hydrate app-specific user data
