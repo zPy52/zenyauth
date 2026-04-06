@@ -113,6 +113,60 @@ After sign-in:
 3. React components read the current session from an external store.
 4. Cross-tab updates are synced with `BroadcastChannel` when available.
 
+## OAuth Provider Setup
+
+ZenyAuth handles the OAuth redirect and callback flow for you, but each provider still needs an app registration with the correct redirect URI.
+
+The callback URL is always built from your auth base path and provider id. For the default setup, register these local URLs so you can test on your machine:
+
+`http://localhost:3000/api/authorize/callback/google`
+
+`http://localhost:3000/api/authorize/callback/microsoft`
+
+If you change `basePath`, replace `/api/authorize` with your custom value.
+
+### Google OAuth
+
+1. Open the Google Cloud Console and create or select a project.
+2. Go to APIs and Services > Credentials.
+3. Create an OAuth client ID.
+4. Choose `Web application` as the application type.
+5. Add these Authorized redirect URIs:
+
+`http://localhost:3000/api/authorize/callback/google`
+
+`https://your-production-domain.com/api/authorize/callback/google`
+
+6. Copy these environment variables into your app:
+
+`GOOGLE_CLIENT_ID`
+
+`GOOGLE_CLIENT_SECRET`
+
+Google requires the redirect URI to match exactly. For local development, `http://localhost:3000/...` is allowed, so you can test sign-in on your machine before deploying.
+
+### Microsoft Entra OAuth
+
+1. Open the Microsoft Entra admin center.
+2. Go to App registrations and create a new app, or open an existing one.
+3. Open Authentication.
+4. Under Platform configurations, add a `Web` platform.
+5. Add these Redirect URIs:
+
+`http://localhost:3000/api/authorize/callback/microsoft`
+
+`https://your-production-domain.com/api/authorize/callback/microsoft`
+
+6. Copy these environment variables into your app:
+
+`MICROSOFT_CLIENT_ID`
+
+`MICROSOFT_CLIENT_SECRET`
+
+7. Optional: set `MICROSOFT_TENANT_ID` if you want to lock the app to a single tenant. If you omit it, the provider uses `common`.
+
+For local testing, Microsoft Entra also accepts `http://localhost:3000/...` redirect URIs on the Web platform, so you can run the app locally and sign in without deploying first.
+
 ## Step 1: Define Auth Config
 
 Create a shared auth config file, usually something like `src/auth.ts`.
