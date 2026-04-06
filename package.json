@@ -1,7 +1,7 @@
 {
   "name": "zenyauth",
   "version": "0.1.0",
-  "description": "Zero-fetch auth for Next.js with static Session access.",
+  "description": "Highly efficient Next.js OAuth and auth framework",
   "type": "module",
   "license": "MIT",
   "files": [
