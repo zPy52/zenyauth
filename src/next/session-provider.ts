@@ -5,7 +5,6 @@ import { headers } from "next/headers";
 
 import type { DefaultUser, SessionSnapshot, SessionSnapshotJson } from "../shared/types";
 import { SESSION_HEADER_NAME, decodeSnapshotHeader } from "../shared/session";
-import { SessionProvider as ReactSessionProvider } from "../react";
 
 export type SessionProviderProps<TUser = DefaultUser> = {
   children: ReactNode;
@@ -22,6 +21,8 @@ export async function SessionProvider<TUser = DefaultUser>({
     initialSnapshot !== undefined
       ? initialSnapshot
       : decodeSnapshotHeader<TUser>((await headers()).get(SESSION_HEADER_NAME));
+
+  const { SessionProvider: ReactSessionProvider } = await import("../react");
 
   return createElement(ReactSessionProvider<TUser>, {
     children,

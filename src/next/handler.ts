@@ -315,8 +315,8 @@ async function handleSignOut<TUser>(req: Request, options: NormalizedZenyAuthOpt
   return jsonResponse({ ok: true }, { headers });
 }
 
-async function resolveSegments(context?: RouteContext): Promise<string[] | undefined> {
-  const params = context?.params ? await context.params : undefined;
+async function resolveSegments(context: RouteContext): Promise<string[] | undefined> {
+  const params = context.params ? await context.params : undefined;
   const value = params?.zenyauth;
   if (!value) {
     return undefined;
@@ -326,7 +326,7 @@ async function resolveSegments(context?: RouteContext): Promise<string[] | undef
 
 async function handleAuthRequest<TUser>(
   req: Request,
-  context: RouteContext | undefined,
+  context: RouteContext,
   options: NormalizedZenyAuthOptions<TUser>
 ): Promise<Response> {
   const action = parseAuthAction(await resolveSegments(context));
@@ -373,8 +373,8 @@ async function handleAuthRequest<TUser>(
 }
 
 export function NextZenyAuth<TUser = DefaultUser>(rawOptions: ZenyAuthOptions<TUser>): {
-  GET: (req: Request, context?: RouteContext) => Promise<Response>;
-  POST: (req: Request, context?: RouteContext) => Promise<Response>;
+  GET: (req: Request, context: RouteContext) => Promise<Response>;
+  POST: (req: Request, context: RouteContext) => Promise<Response>;
 } {
   const options = normalizeOptions(rawOptions);
 
