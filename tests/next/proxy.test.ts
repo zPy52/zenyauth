@@ -13,8 +13,12 @@ vi.mock("next/server", () => ({
     next(init?: { request?: { headers?: Headers } }) {
       const headers = new Headers();
       const sessionHeader = init?.request?.headers?.get(SESSION_HEADER_NAME);
+      const cookieHeader = init?.request?.headers?.get("cookie");
       if (sessionHeader) {
         headers.set(SESSION_HEADER_NAME, sessionHeader);
+      }
+      if (cookieHeader) {
+        headers.set("x-request-cookie", cookieHeader);
       }
       return new Response(null, {
         status: 200,
@@ -111,6 +115,8 @@ describe("withAuth", () => {
     const injected = decodeSnapshotHeader<{ email: string }>(response.headers.get(SESSION_HEADER_NAME));
     expect(injected.isValid).toBe(true);
     expect(injected.user?.email).toBe("ada@example.com");
+    expect(response.headers.get("x-request-cookie")).toContain("za.session=");
+    expect(response.headers.get("x-request-cookie")).toContain("za.snapshot=");
 
     const cookies = getSetCookies(response);
     expect(cookies).toHaveLength(1);
@@ -133,6 +139,8 @@ describe("withAuth", () => {
 
     const injected = decodeSnapshotHeader(response.headers.get(SESSION_HEADER_NAME));
     expect(injected.isValid).toBe(false);
+    expect(response.headers.get("x-request-cookie")).toContain("za.session=invalid-token");
+    expect(response.headers.get("x-request-cookie")).not.toContain("za.snapshot=");
 
     const cookies = getSetCookies(response);
     expect(cookies).toHaveLength(2);

@@ -2,12 +2,14 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import type { DefaultUser, SessionSnapshot, ZenyAuthOptions } from "../shared/types";
+import { parseCookieHeader } from "../shared/cookies";
 import { normalizeOptions } from "../shared/providers";
 import {
   SESSION_HEADER_NAME,
   buildSnapshotCookie,
   clearAuthCookies,
   clearSnapshotCookie,
+  encodeSnapshotValue,
   encodeSnapshotHeader,
   getCookieNames,
   verifySessionToken
@@ -41,8 +43,33 @@ function applySetCookies(headers: Headers, cookies: string[]): void {
   }
 }
 
-function withSnapshotHeader<TUser>(req: NextRequest, snapshot: SessionSnapshot<TUser>): Headers {
+function buildRequestCookieHeader(cookies: Record<string, string>): string {
+  return Object.entries(cookies)
+    .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
+    .join("; ");
+}
+
+function withSnapshotHeader<TUser>(
+  req: NextRequest,
+  snapshot: SessionSnapshot<TUser>,
+  snapshotCookieName: string
+): Headers {
   const headers = new Headers(req.headers);
+  const requestCookies = parseCookieHeader(headers.get("cookie"));
+
+  if (snapshot.isValid) {
+    requestCookies[snapshotCookieName] = encodeSnapshotValue(snapshot);
+  } else {
+    delete requestCookies[snapshotCookieName];
+  }
+
+  const cookieHeader = buildRequestCookieHeader(requestCookies);
+  if (cookieHeader) {
+    headers.set("cookie", cookieHeader);
+  } else {
+    headers.delete("cookie");
+  }
+
   headers.set(SESSION_HEADER_NAME, encodeSnapshotHeader(snapshot));
   return headers;
 }
@@ -97,7 +124,7 @@ export function withAuth<TUser = DefaultUser>(
         : snapshotCookie
           ? [clearSnapshotCookie(normalized)]
           : [];
-    const requestHeaders = withSnapshotHeader(req, session);
+    const requestHeaders = withSnapshotHeader(req, session, cookieNames.snapshot);
 
     const decision = options.callbacks?.authorized
       ? await options.callbacks.authorized({ req, session })
