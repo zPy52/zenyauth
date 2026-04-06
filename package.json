@@ -1,6 +1,6 @@
 {
   "name": "zenyauth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Highly efficient Next.js OAuth and auth framework",
   "type": "module",
   "license": "MIT",
