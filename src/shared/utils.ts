@@ -1,4 +1,4 @@
-export const DEFAULT_BASE_PATH = "/api/authorize";
+export const DEFAULT_BASE_PATH = "/api/auth";
 export const DEFAULT_COOKIE_PREFIX = "za";
 export const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30;
 

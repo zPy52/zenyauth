@@ -1,7 +1,7 @@
 "use client";
 
 import type { Context, ReactNode } from "react";
-import { createContext, createElement, useContext, useRef, useSyncExternalStore } from "react";
+import { createContext, createElement, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 
 import type {
   AuthConfig,
@@ -15,7 +15,7 @@ import type {
 import { decodeSnapshotValue, deserializeSnapshot, getCookieNames } from "../shared/session";
 import { parseCookieHeader } from "../shared/cookies";
 import { DEFAULT_COOKIE_PREFIX, createInvalidSnapshot } from "../shared/utils";
-import { ClientSession, configureStore, hydrateSnapshot } from "./store";
+import { ClientSession, configureStore, hydrateSnapshot, revalidateSession } from "./store";
 
 export type User = DefaultUser;
 
@@ -55,6 +55,13 @@ function readSnapshotCookie<TUser>(cookiePrefix?: string): SessionSnapshot<TUser
   return decodeSnapshotValue<TUser>(cookies[getCookieNames(cookiePrefix ?? DEFAULT_COOKIE_PREFIX).snapshot]);
 }
 
+function isExpiredByDate(snapshot: SessionSnapshot<unknown>): boolean {
+  if (!snapshot.expiryDate) {
+    return false;
+  }
+  return snapshot.expiryDate.getTime() <= Date.now();
+}
+
 function SessionProviderBase<TUser>({
   children,
   initialSnapshot,
@@ -72,6 +79,16 @@ function SessionProviderBase<TUser>({
       : (cookieSnapshotRef.current ??= readSnapshotCookie<unknown>(cookiePrefix));
 
   hydrateSnapshot(snapshot);
+
+  useEffect(() => {
+    const stale = !snapshot.isValid || snapshot.isExpired || isExpiredByDate(snapshot);
+    if (stale) {
+      void revalidateSession();
+    }
+    // Mount-only: subsequent updates flow through the store + BroadcastChannel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return createElement(context.Provider, { value: snapshot }, children);
 }
 

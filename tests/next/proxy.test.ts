@@ -1,36 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { normalizeOptions } from "../../src/shared/providers";
-import {
-  SESSION_HEADER_NAME,
-  encodeSnapshotValue,
-  createSessionArtifacts,
-  decodeSnapshotHeader
-} from "../../src/shared/session";
+import { createSessionArtifacts } from "../../src/shared/session";
 
 vi.mock("next/server", () => ({
   NextResponse: {
-    next(init?: { request?: { headers?: Headers } }) {
-      const headers = new Headers();
-      const sessionHeader = init?.request?.headers?.get(SESSION_HEADER_NAME);
-      const cookieHeader = init?.request?.headers?.get("cookie");
-      if (sessionHeader) {
-        headers.set(SESSION_HEADER_NAME, sessionHeader);
-      }
-      if (cookieHeader) {
-        headers.set("x-request-cookie", cookieHeader);
-      }
-      return new Response(null, {
-        status: 200,
-        headers
-      });
+    next() {
+      return new Response(null, { status: 200 });
     },
     redirect(url: string | URL) {
       return new Response(null, {
         status: 307,
-        headers: {
-          location: String(url)
-        }
+        headers: { location: String(url) }
       });
     }
   }
@@ -82,7 +63,7 @@ function getSetCookies(response: Response): string[] {
 }
 
 describe("withAuth", () => {
-  it("validates the session, exposes req.auth, and injects the snapshot header", async () => {
+  it("validates a valid JWT, exposes req.auth, and writes no cookies", async () => {
     const authOptions = {
       secret: "proxy-secret",
       providers: []
@@ -108,28 +89,23 @@ describe("withAuth", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     const handledRequest = (handler.mock.calls as unknown[][])[0]?.[0] as
-      | { auth: { user?: { email?: string } } }
+      | { auth: { isValid: boolean; user?: { email?: string } } }
       | undefined;
+    expect(handledRequest?.auth.isValid).toBe(true);
     expect(handledRequest?.auth.user?.email).toBe("ada@example.com");
-
-    const injected = decodeSnapshotHeader<{ email: string }>(response.headers.get(SESSION_HEADER_NAME));
-    expect(injected.isValid).toBe(true);
-    expect(injected.user?.email).toBe("ada@example.com");
-    expect(response.headers.get("x-request-cookie")).toContain("za.session=");
-    expect(response.headers.get("x-request-cookie")).toContain("za.snapshot=");
-
-    const cookies = getSetCookies(response);
-    expect(cookies).toHaveLength(1);
-    expect(cookies[0]).toContain("za.snapshot=");
-    expect(cookies[0]).toContain(encodeURIComponent(encodeSnapshotValue(injected)));
+    expect(getSetCookies(response)).toHaveLength(0);
   });
 
-  it("clears invalid cookies and injects an invalid snapshot", async () => {
+  it("passes through with an invalid req.auth when the JWT is invalid", async () => {
     const { withAuth } = await import("../../src/next/proxy");
-    const proxy = withAuth({
-      secret: "proxy-secret",
-      providers: []
-    });
+    const handler = vi.fn(() => undefined);
+    const proxy = withAuth(
+      {
+        secret: "proxy-secret",
+        providers: []
+      },
+      handler
+    );
 
     const response = await proxy(
       makeRequest("https://app.example.com/dashboard", {
@@ -137,17 +113,12 @@ describe("withAuth", () => {
       })
     );
 
-    const injected = decodeSnapshotHeader(response.headers.get(SESSION_HEADER_NAME));
-    expect(injected.isValid).toBe(false);
-    expect(response.headers.get("x-request-cookie")).toContain("za.session=invalid-token");
-    expect(response.headers.get("x-request-cookie")).not.toContain("za.snapshot=");
-
-    const cookies = getSetCookies(response);
-    expect(cookies).toHaveLength(2);
-    expect(cookies[0]).toContain("za.session=");
-    expect(cookies[0]).toContain("Max-Age=0");
-    expect(cookies[1]).toContain("za.snapshot=");
-    expect(cookies[1]).toContain("Max-Age=0");
+    expect(handler).toHaveBeenCalledTimes(1);
+    const handledRequest = (handler.mock.calls as unknown[][])[0]?.[0] as
+      | { auth: { isValid: boolean } }
+      | undefined;
+    expect(handledRequest?.auth.isValid).toBe(false);
+    expect(getSetCookies(response)).toHaveLength(0);
   });
 
   it("redirects HTML requests to the sign-in page when authorization fails", async () => {
@@ -178,9 +149,28 @@ describe("withAuth", () => {
     expect(response.headers.get("location")).toBe(
       "https://app.example.com/signin?callbackUrl=%2Fdashboard%3Ftab%3Dprivate"
     );
+    expect(getSetCookies(response)).toHaveLength(0);
+  });
 
-    const cookies = getSetCookies(response);
-    expect(cookies).toHaveLength(0);
+  it("returns 401 for non-HTML requests when authorization fails", async () => {
+    const { withAuth } = await import("../../src/next/proxy");
+    const proxy = withAuth(
+      {
+        secret: "proxy-secret",
+        providers: []
+      },
+      undefined,
+      {
+        callbacks: {
+          authorized: () => false
+        }
+      }
+    );
+
+    const response = await proxy(makeRequest("https://app.example.com/dashboard"));
+    expect(response.status).toBe(401);
+    await expect(response.text()).resolves.toBe("Unauthorized");
+    expect(getSetCookies(response)).toHaveLength(0);
   });
 
   it("supports custom authorization responses", async () => {
@@ -201,9 +191,10 @@ describe("withAuth", () => {
     const response = await proxy(makeRequest("https://app.example.com/dashboard"));
     expect(response.status).toBe(418);
     await expect(response.text()).resolves.toBe("blocked");
+    expect(getSetCookies(response)).toHaveLength(0);
   });
 
-  it("clears a stale snapshot cookie even when the JWT cookie is missing", async () => {
+  it("does not write any cookies when only a stale snapshot cookie is present", async () => {
     const { withAuth } = await import("../../src/next/proxy");
     const proxy = withAuth({
       secret: "proxy-secret",
@@ -216,9 +207,18 @@ describe("withAuth", () => {
       })
     );
 
-    const cookies = getSetCookies(response);
-    expect(cookies).toHaveLength(1);
-    expect(cookies[0]).toContain("za.snapshot=");
-    expect(cookies[0]).toContain("Max-Age=0");
+    expect(getSetCookies(response)).toHaveLength(0);
+  });
+
+  it("returns the optional handler's Response verbatim", async () => {
+    const { withAuth } = await import("../../src/next/proxy");
+    const proxy = withAuth(
+      { secret: "proxy-secret", providers: [] },
+      () => new Response("hello", { status: 201 })
+    );
+
+    const response = await proxy(makeRequest("https://app.example.com/dashboard"));
+    expect(response.status).toBe(201);
+    await expect(response.text()).resolves.toBe("hello");
   });
 });

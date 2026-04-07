@@ -131,8 +131,30 @@ describe("client Session", () => {
   it("hydrates the store from the email sign-in response body", async () => {
     let currentSession: SessionState<TestUser> | undefined;
 
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+
+      if (url.includes("/session")) {
+        return new Response(
+          JSON.stringify({
+            user: undefined,
+            expiryDate: undefined,
+            isExpired: false,
+            isValid: false
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        );
+      }
+
+      return new Response(
         JSON.stringify({
           ok: true,
           redirected: false,
@@ -140,12 +162,10 @@ describe("client Session", () => {
         }),
         {
           status: 200,
-          headers: {
-            "content-type": "application/json"
-          }
+          headers: { "content-type": "application/json" }
         }
-      )
-    );
+      );
+    });
 
     function Probe() {
       currentSession = useSession();
@@ -172,6 +192,124 @@ describe("client Session", () => {
     });
 
     expect(container.querySelector("#value")?.textContent).toBe("ada@example.com");
+  });
+
+  it("background-fetches /api/auth/session on mount when no snapshot is present", async () => {
+    const validSnapshot = makeSnapshot("nora@example.com");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(validSnapshot), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    function Probe() {
+      const session = useSession();
+      return <div id="value">{session.user?.email ?? "anonymous"}</div>;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    await act(async () => {
+      const root = createRoot(container);
+      root.render(
+        <SessionProvider>
+          <Probe />
+        </SessionProvider>
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchSpy).toHaveBeenCalled();
+    const calledUrl = fetchSpy.mock.calls[0][0];
+    const calledUrlString =
+      typeof calledUrl === "string"
+        ? calledUrl
+        : calledUrl instanceof URL
+          ? calledUrl.toString()
+          : (calledUrl as Request).url;
+    expect(calledUrlString).toContain("/api/auth/session");
+    expect(container.querySelector("#value")?.textContent).toBe("nora@example.com");
+  });
+
+  it("background-fetches and clears the store when the snapshot is expired", async () => {
+    const expiredSnapshot: SessionSnapshotJson<TestUser> = {
+      user: { email: "stale@example.com", name: "stale" },
+      expiryDate: new Date(Date.now() - 60 * 1000).toISOString(),
+      isExpired: true,
+      isValid: false
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user: undefined,
+          expiryDate: undefined,
+          isExpired: false,
+          isValid: false
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      )
+    );
+
+    function Probe() {
+      const session = useSession();
+      return <div id="value">{session.user?.email ?? "anonymous"}</div>;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    await act(async () => {
+      const root = createRoot(container);
+      root.render(
+        <SessionProvider initialSnapshot={expiredSnapshot}>
+          <Probe />
+        </SessionProvider>
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(container.querySelector("#value")?.textContent).toBe("anonymous");
+  });
+
+  it("does not background-fetch when the snapshot is fresh and valid", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    function Probe() {
+      const session = useSession();
+      return <div id="value">{session.user?.email ?? "anonymous"}</div>;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    await act(async () => {
+      const root = createRoot(container);
+      root.render(
+        <SessionProvider initialSnapshot={makeSnapshot("liv@example.com")}>
+          <Probe />
+        </SessionProvider>
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(container.querySelector("#value")?.textContent).toBe("liv@example.com");
   });
 
   it("clears the store immediately on sign-out", async () => {

@@ -238,6 +238,38 @@ export function clearHydratedSnapshot(options?: { notifyPeers?: boolean }): void
   clearSnapshot(options);
 }
 
+export async function revalidateSession(): Promise<void> {
+  if (!isBrowser()) {
+    return;
+  }
+  ensureRuntime();
+
+  try {
+    const response = await fetch(`${state.api}/session`, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { accept: "application/json" }
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const result = await parseResult(response);
+    const session = toSnapshotJson(result);
+
+    if (session && session.isValid) {
+      applySnapshot(deserializeSnapshot(session) as SessionSnapshot<unknown>, {
+        notifyPeers: true
+      });
+    } else {
+      clearSnapshot({ notifyPeers: true });
+    }
+  } catch {
+    // Network or parse error — leave the current store as-is.
+  }
+}
+
 export class ClientSession {
   static get user(): unknown | undefined {
     return getSnapshot().user;

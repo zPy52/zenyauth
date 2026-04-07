@@ -17,8 +17,8 @@ export default function MicrosoftProvider<TUser = DefaultUser>(config: {
   const tenant = config.tenantId ?? "common";
 
   return {
-    id: "microsoft",
-    name: "Microsoft",
+    id: "microsoft-entra-id",
+    name: "Microsoft Entra ID",
     type: "oauth",
     clientId: config.clientId,
     clientSecret: config.clientSecret,

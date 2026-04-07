@@ -2,18 +2,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import type { DefaultUser, SessionSnapshot, ZenyAuthOptions } from "../shared/types";
-import { parseCookieHeader } from "../shared/cookies";
 import { normalizeOptions } from "../shared/providers";
-import {
-  SESSION_HEADER_NAME,
-  buildSnapshotCookie,
-  clearAuthCookies,
-  clearSnapshotCookie,
-  encodeSnapshotValue,
-  encodeSnapshotHeader,
-  getCookieNames,
-  verifySessionToken
-} from "../shared/session";
+import { getCookieNames, verifySessionToken } from "../shared/session";
 import { wantsHtml } from "../shared/utils";
 
 export type AuthenticatedNextRequest<TUser = DefaultUser> = NextRequest & {
@@ -37,72 +27,17 @@ export type ZenyAuthProxyOptions<TUser = DefaultUser> = {
   };
 };
 
-function applySetCookies(headers: Headers, cookies: string[]): void {
-  for (const cookie of cookies) {
-    headers.append("set-cookie", cookie);
-  }
-}
-
-function buildRequestCookieHeader(cookies: Record<string, string>): string {
-  return Object.entries(cookies)
-    .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
-    .join("; ");
-}
-
-function withSnapshotHeader<TUser>(
+function unauthorized<TUser>(
   req: NextRequest,
-  snapshot: SessionSnapshot<TUser>,
-  snapshotCookieName: string
-): Headers {
-  const headers = new Headers(req.headers);
-  const requestCookies = parseCookieHeader(headers.get("cookie"));
-
-  if (snapshot.isValid) {
-    requestCookies[snapshotCookieName] = encodeSnapshotValue(snapshot);
-  } else {
-    delete requestCookies[snapshotCookieName];
-  }
-
-  const cookieHeader = buildRequestCookieHeader(requestCookies);
-  if (cookieHeader) {
-    headers.set("cookie", cookieHeader);
-  } else {
-    headers.delete("cookie");
-  }
-
-  headers.set(SESSION_HEADER_NAME, encodeSnapshotHeader(snapshot));
-  return headers;
-}
-
-function createPassThroughResponse(headers: Headers): NextResponse {
-  return NextResponse.next({
-    request: {
-      headers
-    }
-  });
-}
-
-function createUnauthorizedResponse<TUser>(
-  req: NextRequest,
-  options: ZenyAuthProxyOptions<TUser>,
-  responseCookies: string[]
+  options: ZenyAuthProxyOptions<TUser>
 ): Response {
   if (wantsHtml(req) && options.pages?.signIn) {
     const url = new URL(options.pages.signIn, req.url);
     url.searchParams.set("callbackUrl", `${req.nextUrl.pathname}${req.nextUrl.search}`);
-    const response = NextResponse.redirect(url);
-    applySetCookies(response.headers, responseCookies);
-    return response;
+    return NextResponse.redirect(url);
   }
 
-  const response = new Response("Unauthorized", { status: 401 });
-  applySetCookies(response.headers, responseCookies);
-  return response;
-}
-
-function attachCookies(response: Response, responseCookies: string[]): Response {
-  applySetCookies(response.headers, responseCookies);
-  return response;
+  return new Response("Unauthorized", { status: 401 });
 }
 
 export function withAuth<TUser = DefaultUser>(
@@ -111,32 +46,11 @@ export function withAuth<TUser = DefaultUser>(
   options: ZenyAuthProxyOptions<TUser> = {}
 ): (req: NextRequest) => Promise<NextResponse | Response> {
   const normalized = normalizeOptions(authOptions);
-  const cookieNames = getCookieNames(normalized.session.cookiePrefix);
+  const sessionCookie = getCookieNames(normalized.session.cookiePrefix).session;
 
   return async (req: NextRequest) => {
-    const sessionToken = req.cookies.get(cookieNames.session)?.value;
-    const snapshotCookie = req.cookies.get(cookieNames.snapshot)?.value;
-    const session = await verifySessionToken<TUser>(sessionToken, normalized.secret);
-    const responseCookies = session.isValid
-      ? [buildSnapshotCookie(session, normalized)]
-      : sessionToken
-        ? clearAuthCookies(normalized)
-        : snapshotCookie
-          ? [clearSnapshotCookie(normalized)]
-          : [];
-    const requestHeaders = withSnapshotHeader(req, session, cookieNames.snapshot);
-
-    const decision = options.callbacks?.authorized
-      ? await options.callbacks.authorized({ req, session })
-      : true;
-
-    if (decision instanceof Response) {
-      return attachCookies(decision, responseCookies);
-    }
-
-    if (decision === false) {
-      return createUnauthorizedResponse(req, options, responseCookies);
-    }
+    const token = req.cookies.get(sessionCookie)?.value;
+    const session = await verifySessionToken<TUser>(token, normalized.secret);
 
     const authReq = req as AuthenticatedNextRequest<TUser>;
     Object.defineProperty(authReq, "auth", {
@@ -146,19 +60,25 @@ export function withAuth<TUser = DefaultUser>(
       writable: true
     });
 
-    if (!handler) {
-      const response = createPassThroughResponse(requestHeaders);
-      applySetCookies(response.headers, responseCookies);
-      return response;
+    const decision = options.callbacks?.authorized
+      ? await options.callbacks.authorized({ req, session })
+      : true;
+
+    if (decision instanceof Response) {
+      return decision;
     }
 
-    const response = await handler(authReq);
-    if (response) {
-      return attachCookies(response, responseCookies);
+    if (decision === false) {
+      return unauthorized(req, options);
     }
 
-    const nextResponse = createPassThroughResponse(requestHeaders);
-    applySetCookies(nextResponse.headers, responseCookies);
-    return nextResponse;
+    if (handler) {
+      const response = await handler(authReq);
+      if (response) {
+        return response;
+      }
+    }
+
+    return NextResponse.next();
   };
 }

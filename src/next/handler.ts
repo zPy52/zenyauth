@@ -13,6 +13,7 @@ import { getProviderById, isEmailProvider, isOAuthProvider, normalizeOptions } f
 import { parseAuthAction } from "../shared/routes";
 import {
   buildAuthCookies,
+  buildSnapshotCookie,
   clearAuthCookies,
   clearFlowCookie,
   createFlowCookie,
@@ -163,11 +164,11 @@ async function buildSuccessSessionResponse<TUser>(
   return jsonResponse(
     {
       ok: true,
-        redirected: false,
-        session: serializeSnapshot(snapshot)
-      },
-      { headers }
-    );
+      redirected: false,
+      session: serializeSnapshot(snapshot)
+    },
+    { headers }
+  );
 }
 
 async function handleOAuthSignIn<TUser>(
@@ -292,7 +293,10 @@ async function handleSession<TUser>(
   const cookies = parseCookieHeader(req.headers.get("cookie"));
   const snapshot = await verifySessionToken<TUser>(cookies[names.session], options.secret);
   const headers = new Headers();
-  if (!snapshot.isValid && (cookies[names.session] || cookies[names.snapshot])) {
+
+  if (snapshot.isValid) {
+    headers.append("set-cookie", buildSnapshotCookie(snapshot, options));
+  } else if (cookies[names.session] || cookies[names.snapshot]) {
     applySetCookies(headers, clearAuthCookies(options));
   }
 

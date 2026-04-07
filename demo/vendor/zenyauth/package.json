@@ -1,0 +1,70 @@
+{
+  "name": "zenyauth",
+  "version": "0.2.3",
+  "description": "Highly efficient Next.js OAuth and auth framework, with rate limits and usage credits",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js"
+    },
+    "./providers/github": {
+      "types": "./dist/providers/github.d.ts",
+      "import": "./dist/providers/github.js"
+    },
+    "./providers/google": {
+      "types": "./dist/providers/google.d.ts",
+      "import": "./dist/providers/google.js"
+    },
+    "./providers/microsoft": {
+      "types": "./dist/providers/microsoft.d.ts",
+      "import": "./dist/providers/microsoft.js"
+    },
+    "./providers/apple": {
+      "types": "./dist/providers/apple.d.ts",
+      "import": "./dist/providers/apple.js"
+    },
+    "./providers/email": {
+      "types": "./dist/providers/email.d.ts",
+      "import": "./dist/providers/email.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "next": "^16.2.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "dependencies": {
+    "jose": "^6.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^29.0.1",
+    "next": "^16.2.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

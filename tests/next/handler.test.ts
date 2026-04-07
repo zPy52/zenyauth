@@ -90,7 +90,7 @@ describe("NextZenyAuth", () => {
   it("returns provider metadata", async () => {
     const handler = NextZenyAuth(authOptions);
     const response = await handler.GET(
-      new Request("https://app.example.com/api/authorize/providers"),
+      new Request("https://app.example.com/api/auth/providers"),
       makeContext(["providers"])
     );
 
@@ -106,21 +106,21 @@ describe("NextZenyAuth", () => {
   it("starts oauth sign-in with a catch-all route redirect", async () => {
     const handler = NextZenyAuth(authOptions);
     const response = await handler.GET(
-      new Request("https://app.example.com/api/authorize/signin/google?callbackUrl=%2Fdashboard"),
+      new Request("https://app.example.com/api/auth/signin/google?callbackUrl=%2Fdashboard"),
       makeContext(["signin", "google"])
     );
 
     expect(response.status).toBe(302);
     const location = response.headers.get("location");
     expect(location).toContain("https://accounts.google.com/o/oauth2/v2/auth");
-    expect(location).toContain(encodeURIComponent("https://app.example.com/api/authorize/callback/google"));
+    expect(location).toContain(encodeURIComponent("https://app.example.com/api/auth/callback/google"));
     expect(getSetCookies(response).some((cookie) => cookie.includes("za.flow.google"))).toBe(true);
   });
 
   it("signs in email users and exposes the session server-side", async () => {
     const handler = NextZenyAuth(authOptions);
     const response = await handler.POST(
-      new Request("https://app.example.com/api/authorize/signin/email", {
+      new Request("https://app.example.com/api/auth/signin/email", {
         method: "POST",
         headers: {
           "content-type": "application/json"
@@ -165,7 +165,7 @@ describe("NextZenyAuth", () => {
     });
 
     const response = await handler.POST(
-      new Request("https://app.example.com/api/authorize/signin/email", {
+      new Request("https://app.example.com/api/auth/signin/email", {
         method: "POST",
         headers: {
           "content-type": "application/json"
@@ -203,7 +203,7 @@ describe("NextZenyAuth", () => {
     });
 
     const response = await handler.POST(
-      new Request("https://app.example.com/api/authorize/signin/email", {
+      new Request("https://app.example.com/api/auth/signin/email", {
         method: "POST",
         headers: {
           "content-type": "application/json"
@@ -231,7 +231,7 @@ describe("NextZenyAuth", () => {
     });
 
     const signInResponse = await handler.GET(
-      new Request("https://app.example.com/api/authorize/signin/testoauth?callbackUrl=%2Fprivate"),
+      new Request("https://app.example.com/api/auth/signin/testoauth?callbackUrl=%2Fprivate"),
       makeContext(["signin", "testoauth"])
     );
     const flowCookie = getSetCookies(signInResponse)
@@ -279,7 +279,7 @@ describe("NextZenyAuth", () => {
     expect(state).toBeTruthy();
 
     const callbackResponse = await handler.GET(
-      new Request(`https://app.example.com/api/authorize/callback/testoauth?code=test-code&state=${state}`, {
+      new Request(`https://app.example.com/api/auth/callback/testoauth?code=test-code&state=${state}`, {
         headers: {
           cookie: flowCookie ?? ""
         }
@@ -305,7 +305,7 @@ describe("NextZenyAuth", () => {
     });
 
     const signInResponse = await handler.GET(
-      new Request("https://app.example.com/api/authorize/signin/testoauth?callbackUrl=%2Fprivate"),
+      new Request("https://app.example.com/api/auth/signin/testoauth?callbackUrl=%2Fprivate"),
       makeContext(["signin", "testoauth"])
     );
     const flowCookie = getSetCookies(signInResponse)
@@ -349,7 +349,7 @@ describe("NextZenyAuth", () => {
 
     const state = new URL(signInResponse.headers.get("location") || "").searchParams.get("state");
     const callbackResponse = await handler.GET(
-      new Request(`https://app.example.com/api/authorize/callback/testoauth?code=test-code&state=${state}`, {
+      new Request(`https://app.example.com/api/auth/callback/testoauth?code=test-code&state=${state}`, {
         headers: {
           cookie: flowCookie ?? ""
         }
@@ -389,7 +389,7 @@ describe("NextZenyAuth", () => {
     });
 
     const signInResponse = await handler.GET(
-      new Request("https://app.example.com/api/authorize/signin/testoauth?callbackUrl=%2Fprivate"),
+      new Request("https://app.example.com/api/auth/signin/testoauth?callbackUrl=%2Fprivate"),
       makeContext(["signin", "testoauth"])
     );
     const flowCookie = getSetCookies(signInResponse)
@@ -433,7 +433,7 @@ describe("NextZenyAuth", () => {
 
     const state = new URL(signInResponse.headers.get("location") || "").searchParams.get("state");
     const callbackResponse = await handler.GET(
-      new Request(`https://app.example.com/api/authorize/callback/testoauth?code=test-code&state=${state}`, {
+      new Request(`https://app.example.com/api/auth/callback/testoauth?code=test-code&state=${state}`, {
         headers: {
           cookie: flowCookie ?? ""
         }
@@ -467,7 +467,7 @@ describe("NextZenyAuth", () => {
     });
 
     const response = await handler.POST(
-      new Request("https://app.example.com/api/authorize/signin/email", {
+      new Request("https://app.example.com/api/auth/signin/email", {
         method: "POST",
         headers: {
           "content-type": "application/json"

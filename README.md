@@ -120,11 +120,11 @@ ZenyAuth handles the OAuth redirect and callback flow for you, but each provider
 
 The callback URL is always built from your auth base path and provider id. For the default setup, register these local URLs so you can test on your machine:
 
-`http://localhost:3000/api/authorize/callback/google`
+`http://localhost:3000/api/auth/callback/google`
 
-`http://localhost:3000/api/authorize/callback/microsoft`
+`http://localhost:3000/api/auth/callback/microsoft-entra-id`
 
-If you change `basePath`, replace `/api/authorize` with your custom value.
+If you change `basePath`, replace `/api/auth` with your custom value.
 
 ### Google OAuth
 
@@ -134,9 +134,9 @@ If you change `basePath`, replace `/api/authorize` with your custom value.
 4. Choose `Web application` as the application type.
 5. Add these Authorized redirect URIs:
 
-`http://localhost:3000/api/authorize/callback/google`
+`http://localhost:3000/api/auth/callback/google`
 
-`https://your-production-domain.com/api/authorize/callback/google`
+`https://your-production-domain.com/api/auth/callback/google`
 
 6. Copy these environment variables into your app:
 
@@ -154,9 +154,9 @@ Google requires the redirect URI to match exactly. For local development, `http:
 4. Under Platform configurations, add a `Web` platform.
 5. Add these Redirect URIs:
 
-`http://localhost:3000/api/authorize/callback/microsoft`
+`http://localhost:3000/api/auth/callback/microsoft-entra-id`
 
-`https://your-production-domain.com/api/authorize/callback/microsoft`
+`https://your-production-domain.com/api/auth/callback/microsoft-entra-id`
 
 6. Copy these environment variables into your app:
 
@@ -219,7 +219,7 @@ The important options are:
 
 1. `secret`: used to sign and verify the session JWT and flow cookie.
 2. `providers`: array of OAuth or email providers.
-3. `basePath`: defaults to `/api/authorize`.
+3. `basePath`: defaults to `/api/auth`.
 4. `session.maxAge`: defaults to 30 days.
 5. `session.cookiePrefix`: defaults to `za`.
 6. `pages.signIn` and `pages.error`: optional redirect pages.
@@ -524,7 +524,7 @@ Use `createNextAuth` in your auth route file.
 If you are using the App Router, create:
 
 ```ts
-// app/api/authorize/[...zenyauth]/route.ts
+// app/api/auth/[...zenyauth]/route.ts
 import { auth } from "@/auth";
 import { createNextAuth } from "zenyauth/next";
 
@@ -538,12 +538,12 @@ export const POST = zenyauth.POST;
 
 The generated handler supports these actions:
 
-1. `GET /api/authorize/providers`
-2. `GET /api/authorize/session`
-3. `GET /api/authorize/error`
-4. `GET or POST /api/authorize/signin/:provider`
-5. `GET or POST /api/authorize/callback/:provider`
-6. `POST /api/authorize/signout`
+1. `GET /api/auth/providers`
+2. `GET /api/auth/session`
+3. `GET /api/auth/error`
+4. `GET or POST /api/auth/signin/:provider`
+5. `GET or POST /api/auth/callback/:provider`
+6. `POST /api/auth/signout`
 
 The route parser is strict. Unknown segments return a 404-style auth error.
 
@@ -574,12 +574,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
 ### Why This Exists
 
-The proxy and auth handlers keep two cookies in sync:
+The auth handler at `/api/auth/...` keeps two cookies in sync:
 
-1. An HTTP-only signed JWT cookie
-2. A readable snapshot cookie with the decoded session payload
+1. An HTTP-only signed JWT cookie (server source of truth)
+2. A readable snapshot cookie with the decoded session payload (no signature)
 
-`SessionProvider` reads that snapshot cookie once on initial load and hydrates the client store from it. That avoids a second fetch on first render while still keeping the JWT itself hidden from client JavaScript.
+`SessionProvider` reads that snapshot cookie once on initial load and hydrates the client store from it. That avoids a fetch on first render while still keeping the JWT itself hidden from client JavaScript. If the snapshot is missing or expired, the provider asynchronously revalidates against `/api/auth/session` in the background; the server's response refreshes (or clears) the snapshot cookie via `Set-Cookie`.
 
 If you are not using Next.js, or you want to hydrate manually, use the React `SessionProvider` directly and pass `initialSnapshot` yourself.
 
@@ -691,8 +691,6 @@ export default withAuth(auth, async (req) => {
 });
 ```
 
-The request is also decorated with a serialized session header for downstream middleware and server code.
-
 ## Step 7: Trigger Sign In And Sign Out
 
 The client-side API mirrors the server helpers.
@@ -715,7 +713,7 @@ export function LoginButton() {
 }
 ```
 
-The `provider` argument must match the provider `id`, such as `google`, `github`, `apple`, `microsoft`, or your custom provider id.
+The `provider` argument must match the provider `id`, such as `google`, `github`, `apple`, `microsoft-entra-id`, or your custom provider id.
 
 For OAuth providers, `signIn` starts the redirect flow. For email providers, it posts the credentials and returns a session response.
 
@@ -770,10 +768,10 @@ GitHub uses:
 2. `user:email`
 3. A separate `/user/emails` fetch so it can resolve a verified email address
 
-### Microsoft
+### Microsoft Entra ID
 
 ```ts
-import MicrosoftProvider from "zenyauth/providers/microsoft";
+import MicrosoftEntraIdProvider from "zenyauth/providers/microsoft";
 ```
 
 You can pass an optional `tenantId`. If omitted, it uses `common`.
@@ -923,7 +921,7 @@ export const auth = createAuth({
 ```
 
 ```ts
-// app/api/authorize/[...zenyauth]/route.ts
+// app/api/auth/[...zenyauth]/route.ts
 import { auth } from "@/auth";
 import { createNextAuth } from "zenyauth/next";
 
@@ -1003,7 +1001,7 @@ Use ZenyAuth when you want:
 The recommended usage path is:
 
 1. Define `auth`
-2. Mount `createNextAuth(auth)` on `/api/authorize/[...zenyauth]`
+2. Mount `createNextAuth(auth)` on `/api/auth/[...zenyauth]`
 3. Wrap the app in `SessionProvider`
 4. Read session with `useSession()` in client components
 5. Read session with `Session.read(auth)` or `Session.user(auth)` on the server

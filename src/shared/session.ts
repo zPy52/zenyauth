@@ -9,8 +9,6 @@ import { expireCookie, serializeCookie } from "./cookies";
 import { signToken, verifyToken } from "./tokens";
 import { createInvalidSnapshot, nowInSeconds, toExpiryDate } from "./utils";
 
-export const SESSION_HEADER_NAME = "x-zenyauth-session";
-
 export function getCookieNames(prefix: string): {
   session: string;
   snapshot: string;
@@ -75,14 +73,6 @@ export function decodeSnapshotValue<TUser>(value: string | null | undefined): Se
   } catch {
     return createInvalidSnapshot<TUser>();
   }
-}
-
-export function encodeSnapshotHeader<TUser>(snapshot: SessionSnapshot<TUser>): string {
-  return encodeSnapshotValue(snapshot);
-}
-
-export function decodeSnapshotHeader<TUser>(value: string | null | undefined): SessionSnapshot<TUser> {
-  return decodeSnapshotValue(value);
 }
 
 function resolveSnapshotCookieMaxAge<TUser>(
